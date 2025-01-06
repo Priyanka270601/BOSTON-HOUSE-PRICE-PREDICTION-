@@ -1,0 +1,232 @@
+---
+title: "Boston House Price Prediction"
+author: "BigDataAnalytics"
+date: "2024-05-05"
+output:
+  pdf_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Loading Packages
+
+```{r packages}
+library(mlbench)
+library(ggplot2)
+library(beeswarm)
+```
+
+# dataset description
+
+crim     per capita crime rate by town                                              
+zn      | proportion of residential land zoned for lots over 25,000 sq.ft            indus   | proportion of non-retail business acres per town                           chas    | Charles River dummy variable (= 1 if tract bounds river; 0 otherwise)      
+nox     | nitric oxides concentration (parts per 10 million)                         
+rm      | average number of rooms per dwelling                                    
+age     | proportion of owner-occupied units built prior to 1940                     
+dis     | weighted distances to five Boston employment centres                       
+rad     | index of accessibility to radial highways                                  tax     | full-value property-tax rate per USD 10,000                               ptratio | pupil-teacher ratio by town                                                   b    | where BB is the proportion of blacks by town 
+lstat   | percentage of lower status of the population                              
+ medv    | median value of owner-occupied homes in USD 1000's | target variable
+ 
+ 
+## Data Input
+
+```{r Q3}
+
+data(BostonHousing) 
+
+head(BostonHousing)
+str(BostonHousing)
+```
+
+                      
+
+
+
+
+```{r a}
+
+# checking for null values
+colSums(is.na(BostonHousing))
+
+```
+
+```{r summary}
+summary(BostonHousing)
+```
+
+## Visualization
+
+```{r}
+avg<-colMeans(BostonHousing[-4])
+barplot(avg, main="Averages of Each column in Data")
+```
+
+```{r}
+boxplot(BostonHousing[-c(4,7,10,12)])
+boxplot(BostonHousing[c(7,10,12)])
+```
+
+```{r}
+
+# choosing to plot medv vs remaining columns in dataset
+price <- "medv"
+
+# create a for loop to iterate over each column in the data frame
+plots_list <- lapply(names(BostonHousing), function(var) {
+  if (var != price) {
+    ggplot(BostonHousing, aes_string(x = var, y = price)) + 
+      geom_point() + 
+      labs(x = var, y = price) +
+      theme_bw()
+  } else {
+    NULL
+  }
+})
+library(gridExtra)
+grid.arrange(grobs = plots_list, ncol = 5)
+
+```
+
+
+# Plot between Average Room vs Price 
+```{r}
+ggplot(BostonHousing) +
+  aes(x = rm, y = medv) +
+  geom_point(shape = "circle", size = 1.5, colour = "#112446") +
+  theme_minimal()
+
+```
+
+
+
+```{r}
+ggplot(BostonHousing) +
+  aes(x = medv, y = tax) +
+  geom_point(shape = "circle", size = 1.5, colour = "#112446") +
+  labs(x = "Price", y = "Tax", title = "Price vs Tax") +
+  theme_minimal()
+```
+
+
+
+```{r}
+beeswarm(BostonHousing$medv~BostonHousing$chas)
+
+
+```
+
+
+```{r}
+library(corrplot)
+
+
+# correlation plot using the corrplot function
+corrplot(cor(BostonHousing[-4]), method = "color", type = "upper", order = "hclust", addCoef.col = "black")
+```
+
+## Model building
+
+```{r 3b1}
+model_bh <- lm(medv~.,data=BostonHousing)
+anova(model_bh)
+```
+
+## Selecting variables based on significance
+
+```{r 3b2}
+library(ISLR)
+library(dplyr)
+boston_filtered <- BostonHousing %>% select("medv","crim","zn","indus","chas","rm",
+                                            "age","dis","tax","ptratio","b",
+                                            "lstat")
+
+```
+
+## Partitioning data into train and test
+
+```{r}
+set.seed(123)
+library(caret)
+#Partitioning Data into 80% Training and 20% Validation
+Index_Train<-createDataPartition(boston_filtered$medv, p=0.8, list=FALSE)
+boston_Train <-boston_filtered[Index_Train,]
+boston_Validation  <-boston_filtered[-Index_Train,]
+```
+
+## Normalizing data
+
+```{r 3c}
+norm_model<-preProcess(boston_Train, method = c("center", "scale"))
+#Applying Normalization model to all three data
+boston_norm_Train <-predict(norm_model,boston_Train)
+boston_norm_Validation  <-predict(norm_model,boston_Validation)
+```
+
+## Linear Regression Model
+
+```{r 3d}
+linear <- lm(medv~.,data=boston_norm_Train)
+summary(linear)
+```
+
+## Decision Tree
+
+```{r}
+library(rpart.plot)
+library(rattle)
+library(rpart)
+DT=rpart(medv~.,data=boston_norm_Train, method='anova')
+fancyRpartPlot(DT)
+DT_train <- caret::train(medv~.,data=boston_norm_Train,
+                     method = "rpart" )
+DT_train
+```
+
+## Random Forest
+
+```{r}
+set.seed(123)
+Random_forest<-train(medv~., data=boston_norm_Train,method='rf')
+print(Random_forest)
+```
+
+## SVM
+
+```{r}
+set.seed(123)
+svm<-train(medv~., data=boston_norm_Train,method='svmLinear')
+print(svm)
+```
+## Selecting Best Model
+
+```{r}
+library(readr)
+results <- read_csv("results.csv", col_types = cols(MODEL = col_factor(levels = c("Linear Regression",  "Decision Trees", "Random Forest", "SVM"))), na = "0")
+results <- na.omit(results)
+ggplot(results) + aes(x = MODEL, fill = `R- SQUARED`, weight = RMSE) + geom_bar() +
+  scale_fill_distiller(palette = "Blues", direction = 1) + theme_minimal()
+```
+
+
+Based on the R- squared values from the above models, it can be seen that Random forest is performing good with more than 86%
+
+## Predicting on test data
+
+```{r}
+set.seed(123)
+Random_forest_2<-train(medv~., data=boston_Train,method='rf',
+                     preProcess = c("center", "scale"))
+predicted <- c(predict(Random_forest_2,boston_Validation[-1]))
+```
+```{r}
+output<-as.data.frame(predicted)
+output$actual <- boston_Validation$medv
+
+output
+```
+
+
